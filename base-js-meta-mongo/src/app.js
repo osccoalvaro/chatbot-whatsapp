@@ -88,9 +88,14 @@ async function downloadFileToGridFS(urlOrigen) {
 }
 
 const flowDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, necesito una foto de tu documento de identidad (DNI). Por favor, envíala como una imagen adjunta.',
-   { capture: true },
-  async (ctx, { state, flowDynamic }) => {
-    const url = ctx.url;
+  { capture: true },
+    async (ctx, { state, flowDynamic, fallBack }) => {
+      // Verificar si el tipo de mensaje es una imagen
+      if (ctx.type !== 'image') {
+        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del documento de identidad (DNI).');
+      }
+
+      const url = ctx.url;
 
     try {
       const imageId = await downloadFileToGridFS(url);
@@ -116,12 +121,11 @@ const flowDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, necesito una fot
       );
     } catch (error) {
       console.error("Error procesando la imagen:", error);
-      await flowDynamic("Hubo un problema al procesar tu imagen. Por favor, intenta nuevamente.");
     }
   }
 );
 
-const flowApoderado = addKeyword('Hola')
+const flowApoderado = addKeyword(EVENTS.WELCOME)
   .addAction(async (ctx, { flowDynamic, endFlow }) => {
     const numero = ctx.from;
 
@@ -136,8 +140,16 @@ const flowApoderado = addKeyword('Hola')
   .addAnswer(
     '¡Perfecto! Para comenzar, necesito algunos datos personales.\nPor favor, ingresa tu DNI:',
     { capture: true },
-    async (ctx, { state }) => {
-      await state.update({ dni: ctx.body }); // Guardar el dni en el estado
+    async (ctx, { state, flowDynamic, fallBack }) => {
+      const dni = ctx.body;
+  
+      // Validar que solo contenga números
+      if (!/^\d+$/.test(dni)) {
+        return fallBack('El DNI ingresado no es válido. Por favor, ingresa solo números.');
+      }
+  
+      // Guardar el DNI en el estado
+      await state.update({ dni });
     }
   )
   .addAnswer(
@@ -161,9 +173,21 @@ const flowApoderado = addKeyword('Hola')
       await state.update({ apellidoMaterno: ctx.body }); // Guardar el apellido materno en el estado
     }
   )
-  .addAnswer('Perfecto, Ahora ingresa tu correo electrónico:', { capture: true }, async (ctx, { state }) => {
-    await state.update({ correo: ctx.body });
-  })
+  .addAnswer(
+    'Perfecto, Ahora ingresa tu correo electrónico:',
+    { capture: true },
+    async (ctx, { state, flowDynamic, fallBack }) => {
+      const correo = ctx.body;
+  
+      // Validar formato de correo electrónico
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+        return fallBack('El correo electrónico ingresado no es válido. Por favor, ingresa un correo válido.');
+      }
+  
+      // Guardar el correo en el estado
+      await state.update({ correo });
+    }
+  )
   .addAction(
     async (ctx, { gotoFlow }) => {
       return gotoFlow(flowDNI);
