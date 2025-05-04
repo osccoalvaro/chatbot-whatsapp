@@ -40,15 +40,16 @@ const EstudianteSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   apellidoPaterno: { type: String, required: true },
   apellidoMaterno: { type: String, required: true },
+  tipoAdmision: { type: String },
   grado: { type: String, required: true }, // Nuevo campo para almacenar el grado elegido
   imagen: mongoose.Schema.Types.ObjectId, // Guardamos el ID de la imagen en GridFS
   imagenLibreta: mongoose.Schema.Types.ObjectId, // Nueva imagen de la libreta
   estadoAdmision: { type: String, default: "Pendiente" }, // Nuevo campo con valor por defecto
-  apoderadoId: { type: mongoose.Schema.Types.ObjectId, ref: 'Apoderado', required: true }
+  apoderadoId: { type: mongoose.Schema.Types.ObjectId, ref: 'Apoderado', required: true },
+  pagoMatricula: { type: Boolean, default: false }
 });
 
 const Estudiante = mongoose.model('Estudiante', EstudianteSchema);
-
 
 const apoderadoSchema = new mongoose.Schema({
   dni: { type: String, required: true },
@@ -103,19 +104,17 @@ async function downloadFileToGridFS(urlOrigen) {
 }
 
 const flowYape = addKeyword(utils.setEvent('TRIGGER_YAPE'))
- 
-  .addAnswer(`_🔔 El plazo máximo para efectuar el pago es de 24 horas._\n\nPor favor, envía la *Constancia de Pago* como una imagen adjunta.`, {
-    //media: 'https://scontent.flim16-2.fna.fbcdn.net/v/t1.6435-9/115682207_2753792338198904_2002875969979856193_n.jpg?_nc_cat=107&ccb=1-7&_nc_sid=127cfc&_nc_ohc=w398xiheGRIQ7kNvwG_xIx6&_nc_oc=AdlTX7zOqNlG8L95cIkkUrH3nAeSOyAhBAY7sq3iken6Kvhe-Y2kFr7bhg1A4CahB8c&_nc_zt=23&_nc_ht=scontent.flim16-2.fna&_nc_gid=cmF7XcuVhfi-mCNHKay8iA&oh=00_AfG4CmuHKW0EyR4pm7_XVDVLXZc7m6d4oacMDs3orl7RIA&oe=68324869',
+  .addAnswer(`_🔔 El plazo máximo para efectuar el pago es de 24 horas._`, {
     media: 'src/img/yape.png',
   })
 
 const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
   .addAnswer(
-    'Finalmente, necesito una foto de la Libreta de notas del SIAGIE. Por favor, envíala como una imagen adjunta.',
+    'Finalmente, necesito una foto de la *Libreta de notas del SIAGIE*. Por favor, envíala como una imagen adjunta.',
     { capture: true },
     async (ctx, { state, flowDynamic, fallBack }) => {
       if (ctx.type !== 'image') {
-        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del documento de identidad (DNI) del estudiante.');
+        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del documento de identidad (DNI o CE) del estudiante.');
       }
 
       const url = ctx.url;
@@ -140,7 +139,7 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
         await nuevoEstudiante.save();
 
         await flowDynamic(
-          `¡Gracias! He registrado los datos del estudiante con la siguiente información:\n- DNI: *${state.get('dniEstudiante')}*\n- Nombres: *${state.get('nombreEstudiante')}*\n- Apellido Paterno: *${state.get('apellidoPaternoEstudiante')}*\n- Apellido Materno: *${state.get('apellidoMaternoEstudiante')}*\n- Grado: *${state.get('grado')}*\nLas imágenes también han sido registradas correctamente.`
+          `¡Gracias! He registrado los datos del estudiante con la siguiente información:\n- DNI: *${state.get('dniEstudiante')}*\n- Nombres: *${state.get('nombreEstudiante')}*\n- Apellido Paterno: *${state.get('apellidoPaternoEstudiante')}*\n- Apellido Materno: *${state.get('apellidoMaternoEstudiante')}*\n- Grado: *${state.get('grado')}*\nLos documentos también han sido registrados correctamente. 🪪📃`
         );
 
       } catch (error) {
@@ -151,11 +150,11 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
 
   const flowEstudianteFotoDNI = addKeyword(EVENTS.MEDIA)
   .addAnswer(
-    'Ahora necesito una foto del documento de identidad (DNI) del estudiante. Por favor, envíala como una imagen adjunta.',
+    'Ahora necesito una foto del documento de identidad (DNI o CE) del estudiante. Por favor, envíala como una imagen adjunta.',
     { capture: true },
     async (ctx, { state, flowDynamic, fallBack, gotoFlow }) => {
       if (ctx.type !== 'image') {
-        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del documento de identidad (DNI) del estudiante.');
+        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del documento de identidad (DNI o CE) del estudiante.');
       }
 
       const url = ctx.url;
@@ -165,7 +164,7 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
         console.log('ID del DNI en GridFS:', imageId);
         state.update({ imagenDNI: imageId });
 
-        await flowDynamic('Imagen del DNI registrada. ✅');
+        await flowDynamic('Documento registrado. ✅');
         return gotoFlow(flowEstudianteFotoLibreta);
       } catch (error) {
         console.error("Error procesando la imagen:", error);
@@ -211,7 +210,7 @@ const flowEstudiante = addKeyword(EVENTS.ACTION)
     return gotoFlow(flowEstudianteFotoDNI);
   });
 
-const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, necesito una foto de tu documento de identidad (DNI). Por favor, envíala como una imagen adjunta.',
+const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, necesito una foto de tu documento de identidad (DNI o CE). Por favor, envíala como una imagen adjunta.',
   { capture: true },
   async (ctx, { state, flowDynamic, fallBack, gotoFlow }) => {
     // Verificar si el tipo de mensaje es una imagen
@@ -241,7 +240,7 @@ const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, nec
 
       // Confirmar el registro al usuario
       await flowDynamic(
-        `¡Gracias! He registrado tus datos como apoderado con la siguiente información:\n- DNI: *${state.get('dni')}*\n- Nombres: *${state.get('nombre')}*\n- Apellido Paterno: *${state.get('apellidoPaterno')}*\n- Apellido Materno: *${state.get('apellidoMaterno')}*\n- Correo: *${state.get('correo')}*\n- Teléfono: *${ctx.from}*\nLa imagen también ha sido registrada correctamente.`
+        `¡Gracias! He registrado tus datos como apoderado con la siguiente información:\n- DNI: *${state.get('dni')}*\n- Nombres: *${state.get('nombre')}*\n- Apellido Paterno: *${state.get('apellidoPaterno')}*\n- Apellido Materno: *${state.get('apellidoMaterno')}*\n- Correo: *${state.get('correo')}*\n- Teléfono: *${ctx.from}*\nEl documento también ha sido registrado correctamente. 🪪`
       );
       // Guardar el ID del apoderado en el estado para asociarlo al estudiante
       await state.update({ apoderadoId: nuevoApoderado._id });
@@ -268,7 +267,6 @@ const flowValidarApoderado = addKeyword(EVENTS.ACTION)
 
       return gotoFlow(flowEstudiante)
     }
-    //await flowDynamic(`Muy bien, contamos con vacante disponible en *${selectedGrado.nombre} ${selectedGrado.nivel}*. 🤗`);
     return gotoFlow(flowApoderado)
   })
 
@@ -276,7 +274,7 @@ const flowApoderado = addKeyword(EVENTS.ACTION)
   .addAnswer(
     '¡Perfecto! Para comenzar, necesito algunos datos personales.\nIngresa tu número de documento de identidad (DNI o CE):',
     { capture: true },
-    async (ctx, { state, flowDynamic, fallBack }) => {
+    async (ctx, { state, fallBack }) => {
       const dni = ctx.body;
 
       // Validar que solo contenga números
@@ -312,7 +310,7 @@ const flowApoderado = addKeyword(EVENTS.ACTION)
   .addAnswer(
     'Ingresa tu correo electrónico:',
     { capture: true },
-    async (ctx, { state, flowDynamic, fallBack }) => {
+    async (ctx, { state, fallBack }) => {
       const correo = ctx.body;
 
       // Validar formato de correo electrónico
@@ -354,7 +352,7 @@ const flowAdmision = addKeyword(EVENTS.ACTION)
   )
 
   const flowVacante = addKeyword(['grado_1_id', 'grado_2_id', 'grado_3_id', 'grado_4_id', 'grado_5_id', 'grado_6_id', 'grado_7_id', 'grado_8_id', 'grado_9_id', 'grado_10_id'])
-  .addAction(async (ctx, { flowDynamic, gotoFlow, state, fallBack }) => {
+  .addAction(async (ctx, { flowDynamic, gotoFlow, state }) => {
     try {
       // Petición a la API para obtener los datos
       const response = await axios.get('http://localhost:5000/api/grados');
@@ -397,7 +395,7 @@ const flowAdmision = addKeyword(EVENTS.ACTION)
   });
 
   const flowGradoTraslado = addKeyword("2. Traslado 🚌").addAction(
-    async (ctx, { provider, fallBack }) => {
+    async (ctx, { provider }) => {
       const list = {
         body: {
           text: "Por favor, elige un *grado* para poder continuar. 🤗",
@@ -430,7 +428,7 @@ const flowAdmision = addKeyword(EVENTS.ACTION)
   );
 
   const flowGradoNuevo = addKeyword("1. Nuevo 👦🏻").addAction(
-    async (ctx, { provider, fallBack }) => {
+    async (ctx, { provider }) => {
       const list = {
         body: {
           text: "Por favor, elige un *grado* para poder continuar. 🤗",
