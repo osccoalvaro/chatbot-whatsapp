@@ -40,8 +40,9 @@ const EstudianteSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   apellidoPaterno: { type: String, required: true },
   apellidoMaterno: { type: String, required: true },
-  tipoAdmision: { type: String },
+  tipoAdmision: { type: String, required: true },
   grado: { type: String, required: true }, // Nuevo campo para almacenar el grado elegido
+  condicionMedica: { type: String, required: true }, 
   imagen: mongoose.Schema.Types.ObjectId, // Guardamos el ID de la imagen en GridFS
   imagenLibreta: mongoose.Schema.Types.ObjectId, // Nueva imagen de la libreta
   estadoAdmision: { type: String, default: "Pendiente" }, // Nuevo campo con valor por defecto
@@ -104,7 +105,7 @@ async function downloadFileToGridFS(urlOrigen) {
 }
 
 const flowYape = addKeyword(utils.setEvent('TRIGGER_YAPE'))
-  .addAnswer(`_🔔 El plazo máximo para efectuar el pago es de 24 horas._`, {
+  .addAnswer(`_🕐 El plazo máximo para efectuar el pago es de 24 horas._`, {
     media: 'src/img/yape.png',
   })
 
@@ -114,7 +115,7 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
     { capture: true },
     async (ctx, { state, flowDynamic, fallBack }) => {
       if (ctx.type !== 'image') {
-        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del documento de identidad (DNI o CE) del estudiante.');
+        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del *documento de identidad (DNI o CE)* del estudiante.');
       }
 
       const url = ctx.url;
@@ -130,6 +131,8 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
           apellidoPaterno: state.get('apellidoPaternoEstudiante'),
           apellidoMaterno: state.get('apellidoMaternoEstudiante'),
           grado: state.get('grado'), // Agregar el grado almacenado
+          condicionMedica: state.get('condicionMedica'),
+          tipoAdmision: state.get('tipoAdmision'),
           apoderadoId: state.get('apoderadoId'), // Asociar con el apoderado
           fecha: new Date(),
           imagen: state.get('imagenDNI'),
@@ -139,7 +142,10 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
         await nuevoEstudiante.save();
 
         await flowDynamic(
-          `¡Gracias! He registrado los datos del estudiante con la siguiente información:\n- DNI: *${state.get('dniEstudiante')}*\n- Nombres: *${state.get('nombreEstudiante')}*\n- Apellido Paterno: *${state.get('apellidoPaternoEstudiante')}*\n- Apellido Materno: *${state.get('apellidoMaternoEstudiante')}*\n- Grado: *${state.get('grado')}*\nLos documentos también han sido registrados correctamente. 🪪📃`
+          `¡Gracias! He registrado los datos del estudiante con la siguiente información:\n- Admisión: *${state.get('tipoAdmision')}*\n- Grado: *${state.get('grado')}*\n- N° documento: *${state.get('dniEstudiante')}*\n- Nombre: *${state.get('nombreEstudiante')}*\n- Apellido Paterno: *${state.get('apellidoPaternoEstudiante')}*\n- Apellido Materno: *${state.get('apellidoMaternoEstudiante')}*\n- Condición Médica: *${state.get('condicionMedicaFlag')}*\nLos documentos también han sido registrados correctamente. 🪪📃`
+        );
+        await flowDynamic(
+          `En un plazo máximo de *24 horas* nos comunicaremos contigo para informarte sobre el *estado de admisión del estudiante*. 🕐`
         );
 
       } catch (error) {
@@ -148,13 +154,13 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
     }
   );
 
-  const flowEstudianteFotoDNI = addKeyword(EVENTS.MEDIA)
+const flowEstudianteFotoDNI = addKeyword(EVENTS.MEDIA)
   .addAnswer(
-    'Ahora necesito una foto del documento de identidad (DNI o CE) del estudiante. Por favor, envíala como una imagen adjunta.',
+    '6. Ahora necesito una foto del *documento de identidad (DNI o CE)* del estudiante. Por favor, envíala como una imagen adjunta.',
     { capture: true },
     async (ctx, { state, flowDynamic, fallBack, gotoFlow }) => {
       if (ctx.type !== 'image') {
-        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del documento de identidad (DNI o CE) del estudiante.');
+        return fallBack('El archivo enviado no es válido. Por favor, envía una imagen del *documento de identidad (DNI o CE)* del estudiante.');
       }
 
       const url = ctx.url;
@@ -165,17 +171,59 @@ const flowEstudianteFotoLibreta = addKeyword(EVENTS.MEDIA)
         state.update({ imagenDNI: imageId });
 
         await flowDynamic('Documento registrado. ✅');
-        return gotoFlow(flowEstudianteFotoLibreta);
+
+        const tipoAdmision = state.get('tipoAdmision');
+
+        if (tipoAdmision === 'Traslado') {
+          return gotoFlow(flowEstudianteFotoLibreta);
+        } else {
+          // Si es "Nuevo", guardar directamente en la base de datos
+          const nuevoEstudiante = new Estudiante({
+            dni: state.get('dniEstudiante'),
+            nombre: state.get('nombreEstudiante'),
+            apellidoPaterno: state.get('apellidoPaternoEstudiante'),
+            apellidoMaterno: state.get('apellidoMaternoEstudiante'),
+            grado: state.get('grado'),
+            condicionMedica: state.get('condicionMedica'),
+            tipoAdmision: tipoAdmision,
+            apoderadoId: state.get('apoderadoId'),
+            fecha: new Date(),
+            imagen: imageId,
+            imagenLibreta: null, // No hay libreta si es nuevo
+          });
+
+          await nuevoEstudiante.save();
+
+          await flowDynamic(
+            `¡Gracias! He registrado los datos del estudiante con la siguiente información:\n- Admisión: *${state.get('tipoAdmision')}*\n- Grado: *${state.get('grado')}*\n- N° documento: *${state.get('dniEstudiante')}*\n- Nombre: *${state.get('nombreEstudiante')}*\n- Apellido Paterno: *${state.get('apellidoPaternoEstudiante')}*\n- Apellido Materno: *${state.get('apellidoMaternoEstudiante')}*\n- Condición Médica: *${state.get('condicionMedicaFlag')}*\nEl documento también ha sido registrado correctamente. 🪪`
+          );
+          await flowDynamic(
+            `En un plazo máximo de *24 horas* nos comunicaremos contigo para informarte sobre el *estado de admisión del estudiante*. 🕐`
+          );
+        }
+
       } catch (error) {
         console.error("Error procesando la imagen:", error);
       }
     }
   );
 
-const flowEstudiante = addKeyword(EVENTS.ACTION)
-  .addAnswer('Ahora vamos a continuar con los datos del estudiante para completar el *Proceso de Admisión*.')
+const flowCondicionMedica = addKeyword(EVENTS.ACTION)
   .addAnswer(
-    'Ingresa el número de documento de identidad del estudiante (DNI o CE):',
+    'Por favor describa la *condición*:',
+    { capture: true },
+    async (ctx, { state }) => {
+      await state.update({ condicionMedica: ctx.body });
+    }
+  )
+  .addAction(async (ctx, { gotoFlow }) => {
+    return gotoFlow(flowEstudianteFotoDNI);
+  });
+
+const flowEstudiante = addKeyword(EVENTS.ACTION)
+  .addAnswer('Ahora vamos a continuar con los datos del estudiante para completar el *Proceso de Admisión*')
+  .addAnswer(
+    '1. Ingresa el número de *documento de identidad (DNI o CE)* del estudiante:',
     { capture: true },
     async (ctx, { state, fallBack }) => {
       const dni = ctx.body;
@@ -186,31 +234,48 @@ const flowEstudiante = addKeyword(EVENTS.ACTION)
     }
   )
   .addAnswer(
-    'Ingresa el nombre del estudiante:',
+    '2. Ingresa el *nombre* del estudiante:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ nombreEstudiante: ctx.body });
     }
   )
   .addAnswer(
-    'Ingresa el apellido paterno del estudiante:',
+    '3. Ingresa el *apellido paterno* del estudiante:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ apellidoPaternoEstudiante: ctx.body });
     }
   )
   .addAnswer(
-    'Ingresa el apellido materno del estudiante:',
+    '4. Ingresa el *apellido materno* del estudiante:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ apellidoMaternoEstudiante: ctx.body });
     }
   )
-  .addAction(async (ctx, { gotoFlow }) => {
-    return gotoFlow(flowEstudianteFotoDNI);
-  });
+  .addAnswer('5. ¿El estudiante presenta alguna *condición médica* o *necesidad especial*?',
+    {
+      delay: 2000,
+      buttons: [
+        { body: 'Si' },
+        { body: 'No' },
+      ]
+    }
+  )
+  .addAction({ capture: true },
+    async (ctx, { gotoFlow, state }) => {
+      if (ctx.body == 'Si') {
+        await state.update({ condicionMedicaFlag: 'Sí' });
+        return gotoFlow(flowCondicionMedica)
+      } else if (ctx.body == 'No') {
+        await state.update({ condicionMedicaFlag: 'No', condicionMedica: '' });
+        return gotoFlow(flowEstudianteFotoDNI)
+      }
+    }
+  ); 
 
-const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, necesito una foto de tu documento de identidad (DNI o CE). Por favor, envíala como una imagen adjunta.',
+const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('5. Finalmente, necesito una foto de tu *documento de identidad (DNI o CE)*. Por favor, envíala como una imagen adjunta.',
   { capture: true },
   async (ctx, { state, flowDynamic, fallBack, gotoFlow }) => {
     // Verificar si el tipo de mensaje es una imagen
@@ -240,7 +305,7 @@ const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, nec
 
       // Confirmar el registro al usuario
       await flowDynamic(
-        `¡Gracias! He registrado tus datos como apoderado con la siguiente información:\n- DNI: *${state.get('dni')}*\n- Nombres: *${state.get('nombre')}*\n- Apellido Paterno: *${state.get('apellidoPaterno')}*\n- Apellido Materno: *${state.get('apellidoMaterno')}*\n- Correo: *${state.get('correo')}*\n- Teléfono: *${ctx.from}*\nEl documento también ha sido registrado correctamente. 🪪`
+        `¡Gracias! He registrado tus datos como apoderado con la siguiente información:\n- N° documento: *${state.get('dni')}*\n- Nombre: *${state.get('nombre')}*\n- Apellido Paterno: *${state.get('apellidoPaterno')}*\n- Apellido Materno: *${state.get('apellidoMaterno')}*\n- Correo: *${state.get('correo')}*\n- Teléfono: *${ctx.from}*\nEl documento también ha sido registrado correctamente. 🪪`
       );
       // Guardar el ID del apoderado en el estado para asociarlo al estudiante
       await state.update({ apoderadoId: nuevoApoderado._id });
@@ -252,27 +317,9 @@ const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('Finalmente, nec
   }
 )
 
-const flowValidarApoderado = addKeyword(EVENTS.ACTION)
-  .addAction(async (ctx, { flowDynamic, endFlow, gotoFlow, state }) => {
-    const numero = ctx.from;
-
-    // Verificar si el número de teléfono ya está registrado
-    const usuarioExistente = await Apoderado.findOne({ telefono: numero });
-    if (usuarioExistente) {
-      // return await flowDynamic(`El número de teléfono *${numero}* ya está registrado. Tu usuario *${usuarioExistente.nombre}* está vinculado a este número.`);
-      await flowDynamic(`¡Perfecto, *${usuarioExistente.nombre}*!\nYa tenemos registrados tus datos personales y número de teléfono 📱 *${numero}* como apoderado.`);
-      
-      //Guardar el ID del apoderado en el estado para asociarlo al estudiante
-      await state.update({ apoderadoId: usuarioExistente._id });
-
-      return gotoFlow(flowEstudiante)
-    }
-    return gotoFlow(flowApoderado)
-  })
-
 const flowApoderado = addKeyword(EVENTS.ACTION)
   .addAnswer(
-    '¡Perfecto! Para comenzar, necesito algunos datos personales.\nIngresa tu número de documento de identidad (DNI o CE):',
+    '¡Perfecto! Para comenzar, necesito algunos datos personales.\nIngresa tu número de *documento de identidad (DNI o CE)*:',
     { capture: true },
     async (ctx, { state, fallBack }) => {
       const dni = ctx.body;
@@ -287,28 +334,28 @@ const flowApoderado = addKeyword(EVENTS.ACTION)
     }
   )
   .addAnswer(
-    'Ingresa tu nombre:',
+    '1. Ingresa tu *nombre*:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ nombre: ctx.body }); // Guardar el nombre en el estado
     }
   )
   .addAnswer(
-    'Ingresa tu apellido paterno:',
+    '2. Ingresa tu *apellido paterno*:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ apellidoPaterno: ctx.body }); // Guardar el apellido paterno en el estado
     }
   )
   .addAnswer(
-    'Ingresa tu apellido materno:',
+    '3. Ingresa tu *apellido materno*:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ apellidoMaterno: ctx.body }); // Guardar el apellido materno en el estado
     }
   )
   .addAnswer(
-    'Ingresa tu correo electrónico:',
+    '4. Ingresa tu *correo* electrónico:',
     { capture: true },
     async (ctx, { state, fallBack }) => {
       const correo = ctx.body;
@@ -327,10 +374,27 @@ const flowApoderado = addKeyword(EVENTS.ACTION)
       return gotoFlow(flowApoderadoFotoDNI);
     }
   );
-
 export default flowApoderado;
 
-const flowAdmision = addKeyword(EVENTS.ACTION)
+const flowValidarApoderado = addKeyword(EVENTS.ACTION)
+  .addAction(async (ctx, { flowDynamic, endFlow, gotoFlow, state }) => {
+    const numero = ctx.from;
+
+    // Verificar si el número de teléfono ya está registrado
+    const usuarioExistente = await Apoderado.findOne({ telefono: numero });
+    if (usuarioExistente) {
+      // return await flowDynamic(`El número de teléfono *${numero}* ya está registrado. Tu usuario *${usuarioExistente.nombre}* está vinculado a este número.`);
+      await flowDynamic(`¡Perfecto, *${usuarioExistente.nombre}*!\nYa tenemos registrados tus datos personales y número de teléfono 📱${numero} como apoderado.`);
+      
+      //Guardar el ID del apoderado en el estado para asociarlo al estudiante
+      await state.update({ apoderadoId: usuarioExistente._id });
+
+      return gotoFlow(flowEstudiante)
+    }
+    return gotoFlow(flowApoderado)
+  })
+
+const flowAdmisionTraslado = addKeyword(EVENTS.ACTION)
   .addAnswer(['Antes de iniciar el *Proceso de Admisión*, asegúrate de tener a la mano los siguientes documentos:\n- *DNI del apoderado*\n- *DNI del estudiante*\n- *Libreta de notas del SIAGIE* \n',
     '_Estos documentos son necesarios para completar el registro._'])
   .addAnswer('¿Deseas iniciar el *Proceso de Admisión*?',
@@ -351,7 +415,28 @@ const flowAdmision = addKeyword(EVENTS.ACTION)
     }
   )
 
-  const flowVacante = addKeyword(['grado_1_id', 'grado_2_id', 'grado_3_id', 'grado_4_id', 'grado_5_id', 'grado_6_id', 'grado_7_id', 'grado_8_id', 'grado_9_id', 'grado_10_id'])
+const flowAdmisionNuevo = addKeyword(EVENTS.ACTION)
+  .addAnswer(['Antes de iniciar el *Proceso de Admisión*, asegúrate de tener a la mano los siguientes documentos:\n- *DNI del apoderado*\n- *DNI del estudiante*\n',
+    '_Estos documentos son necesarios para completar el registro._'])
+  .addAnswer('¿Deseas iniciar el *Proceso de Admisión*?',
+    {
+      delay: 2000,
+      buttons: [
+        { body: 'Si' },
+        { body: 'No' },
+      ]
+    })
+  .addAction({ capture: true },
+    async (ctx, { gotoFlow }) => {
+      if (ctx.body == 'Si') {
+        return gotoFlow(flowValidarApoderado)
+      } else if (ctx.body == 'No') {
+        return gotoFlow(flowPrincipal)
+      }
+    }
+  )  
+
+const flowVacante = addKeyword(['grado_1_id', 'grado_2_id', 'grado_3_id', 'grado_4_id', 'grado_5_id', 'grado_6_id', 'grado_7_id', 'grado_8_id', 'grado_9_id', 'grado_10_id', 'grado_11_id', 'grado_12_id', 'grado_13_id', 'grado_14_id'])
   .addAction(async (ctx, { flowDynamic, gotoFlow, state }) => {
     try {
       // Petición a la API para obtener los datos
@@ -369,7 +454,11 @@ const flowAdmision = addKeyword(EVENTS.ACTION)
         "grado_7_id": { nombre: "4° Grado", nivel: "Primaria" },
         "grado_8_id": { nombre: "5° Grado", nivel: "Primaria" },
         "grado_9_id": { nombre: "6° Grado", nivel: "Primaria" },
-        "grado_10_id": { nombre: "1° Grado", nivel: "Secundaria" }
+        "grado_10_id": { nombre: "1° Grado", nivel: "Secundaria" },
+        "grado_11_id": { nombre: "2° Grado", nivel: "Secundaria" },
+        "grado_12_id": { nombre: "3° Grado", nivel: "Secundaria" },
+        "grado_13_id": { nombre: "4° Grado", nivel: "Secundaria" },
+        "grado_14_id": { nombre: "5° Grado", nivel: "Secundaria" }
       };
 
       // Obtiene el grado seleccionado por el usuario
@@ -384,7 +473,15 @@ const flowAdmision = addKeyword(EVENTS.ACTION)
 
       if (vacante > 0) {
         await flowDynamic(`Muy bien, contamos con vacante disponible en *${selectedGrado.nombre} ${selectedGrado.nivel}*. 🤗`);
-        return gotoFlow(flowAdmision);
+
+        const tipoAdmision = state.get('tipoAdmision');
+        
+        if (tipoAdmision === 'Traslado') {
+          return gotoFlow(flowAdmisionTraslado);
+        } else {
+          return gotoFlow(flowAdmisionNuevo);
+        }
+
       } else {
         return await flowDynamic(`Lo siento, no contamos con vacante disponible en *${selectedGrado.nombre} ${selectedGrado.nivel}*. 😔`);
       }
@@ -394,64 +491,128 @@ const flowAdmision = addKeyword(EVENTS.ACTION)
     }
   });
 
-  const flowGradoTraslado = addKeyword("2. Traslado 🚌").addAction(
-    async (ctx, { provider }) => {
-      const list = {
-        body: {
-          text: "Por favor, elige un *grado* para poder continuar. 🤗",
-        },
-        action: {
-          button: "Opciones",
-          sections: [
-            {
-              rows: [
-                { id: "grado_1_id", title: "3 años", description: "INICIAL" },
-                { id: "grado_2_id", title: "4 años", description: "INICIAL" },
-                { id: "grado_3_id", title: "5 años", description: "INICIAL" },
-                { id: "grado_4_id", title: "1° grado", description: "PRIMARIA" },
-                { id: "grado_5_id", title: "2° grado", description: "PRIMARIA" },
-                { id: "grado_6_id", title: "3° grado", description: "PRIMARIA" },
-                { id: "grado_7_id", title: "4° grado", description: "PRIMARIA" },
-                { id: "grado_8_id", title: "5° grado", description: "PRIMARIA" },
-                { id: "grado_9_id", title: "6° grado", description: "PRIMARIA" },
-                { id: "grado_10_id", title: "1° grado", description: "SECUNDARIA" }
-     
-              ],
-            },
-          ],
-        },
-      };
-      // Enviar la lista de grados al usuario
-      await provider.sendList(ctx.from, list);
-    },
-    [flowVacante]
-  );
+const flowSecundariaTraslado = addKeyword("Secundaria").addAction(
+  async (ctx, { provider }) => {
+    const list = {
+      body: {
+        text: "Por favor, elige un *grado* para poder continuar. 😊",
+      },
+      action: {
+        button: "Opciones",
+        sections: [
+          {
+            rows: [
+              { id: "grado_10_id", title: "1° grado", description: "SECUNDARIA" },
+              { id: "grado_11_id", title: "2° grado", description: "SECUNDARIA" },
+              { id: "grado_12_id", title: "3° grado", description: "SECUNDARIA" },
+              { id: "grado_13_id", title: "4° grado", description: "SECUNDARIA" },
+              { id: "grado_14_id", title: "5° grado", description: "SECUNDARIA" }
+            ],
+          },
+        ],
+      },
+    };
+    // Enviar la lista de grados al usuario
+    await provider.sendList(ctx.from, list);
+  },
+  [flowVacante]
+);
 
-  const flowGradoNuevo = addKeyword("1. Nuevo 👦🏻").addAction(
-    async (ctx, { provider }) => {
-      const list = {
-        body: {
-          text: "Por favor, elige un *grado* para poder continuar. 🤗",
-        },
-        action: {
-          button: "Opciones",
-          sections: [
-            {
-              rows: [
-                { id: "grado_1_id", title: "3 años", description: "INICIAL" },
-                { id: "grado_2_id", title: "4 años", description: "INICIAL" },
-                { id: "grado_3_id", title: "5 años", description: "INICIAL" },
-                { id: "grado_4_id", title: "1° grado", description: "PRIMARIA" }
-              ],
-            },
-          ],
-        },
-      };
-      // Enviar la lista de grados al usuario
-      await provider.sendList(ctx.from, list);
-    },
-    [flowVacante]
-  );
+const flowPrimariaTraslado = addKeyword("Primaria").addAction(
+  async (ctx, { provider }) => {
+    const list = {
+      body: {
+        text: "Por favor, elige un *grado* para poder continuar. 😊",
+      },
+      action: {
+        button: "Opciones",
+        sections: [
+          {
+            rows: [
+              { id: "grado_4_id", title: "1° grado", description: "PRIMARIA" },
+              { id: "grado_5_id", title: "2° grado", description: "PRIMARIA" },
+              { id: "grado_6_id", title: "3° grado", description: "PRIMARIA" },
+              { id: "grado_7_id", title: "4° grado", description: "PRIMARIA" },
+              { id: "grado_8_id", title: "5° grado", description: "PRIMARIA" },
+              { id: "grado_9_id", title: "6° grado", description: "PRIMARIA" }
+            ],
+          },
+        ],
+      },
+    };
+    // Enviar la lista de grados al usuario
+    await provider.sendList(ctx.from, list);
+  },
+  [flowVacante]
+);
+
+const flowInicialTraslado = addKeyword("Inicial").addAction(
+  async (ctx, { provider }) => {
+    const list = {
+      body: {
+        text: "Por favor, elige un *grado* para poder continuar. 😊",
+      },
+      action: {
+        button: "Opciones",
+        sections: [
+          {
+            rows: [
+              { id: "grado_1_id", title: "3 Años", description: "INICIAL" },
+              { id: "grado_2_id", title: "4 Años", description: "INICIAL" },
+              { id: "grado_3_id", title: "5 Años", description: "INICIAL" }
+            ],
+          },
+        ],
+      },
+    };
+    // Enviar la lista de grados al usuario
+    await provider.sendList(ctx.from, list);
+  },
+  [flowVacante]
+);
+
+const flowNivelTraslado = addKeyword("2. Traslado 🚌")
+.addAnswer('Elige un *nivel* para poder continuar. 🤗',
+  {
+    delay: 2000,
+    buttons: [
+      { body: 'Inicial' },
+      { body: 'Primaria' },
+      { body: 'Secundaria' }
+    ]
+  },
+  async (ctx, { state }) => {
+    await state.update({ tipoAdmision: 'Traslado' });
+  },
+  [flowInicialTraslado, flowPrimariaTraslado, flowSecundariaTraslado]
+)
+
+const flowGradoNuevo = addKeyword("1. Nuevo 👦🏻").addAction(
+  async (ctx, { provider, state }) => {
+    await state.update({ tipoAdmision: 'Nuevo' }); // <-- Guardamos en el state
+    const list = {
+      body: {
+        text: "Por favor, elige un *grado* para poder continuar. 😊",
+      },
+      action: {
+        button: "Opciones",
+        sections: [
+          {
+            rows: [
+              { id: "grado_1_id", title: "3 años", description: "INICIAL" },
+              { id: "grado_2_id", title: "4 años", description: "INICIAL" },
+              { id: "grado_3_id", title: "5 años", description: "INICIAL" },
+              { id: "grado_4_id", title: "1° grado", description: "PRIMARIA" }
+            ],
+          },
+        ],
+      },
+    };
+    // Enviar la lista de grados al usuario
+    await provider.sendList(ctx.from, list);
+  },
+  [flowVacante]
+);
 
 const flowTipoAdmision = addKeyword('Admisión 2025')
   .addAnswer('Elige un *tipo de admisión* para poder continuar:')
@@ -468,7 +629,7 @@ const flowTipoAdmision = addKeyword('Admisión 2025')
       ]
     },
     null,
-    [flowGradoNuevo, flowGradoTraslado]
+    [flowGradoNuevo, flowNivelTraslado]
   )
 
 const flowPrincipal = addKeyword(EVENTS.WELCOME)
@@ -491,7 +652,7 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
   )
 
 const main = async () => {
-  const adapterFlow = createFlow([flowPrincipal, flowTipoAdmision, flowValidarApoderado, flowApoderado, flowGradoNuevo, flowGradoTraslado, flowVacante, flowAdmision, flowApoderadoFotoDNI, flowEstudiante, flowEstudianteFotoDNI, flowEstudianteFotoLibreta, flowYape])
+  const adapterFlow = createFlow([flowPrincipal, flowTipoAdmision, flowGradoNuevo, flowNivelTraslado, flowInicialTraslado, flowPrimariaTraslado, flowSecundariaTraslado, flowVacante, flowAdmisionNuevo, flowAdmisionTraslado, flowValidarApoderado, flowApoderado, flowApoderadoFotoDNI, flowEstudiante, flowCondicionMedica, flowEstudianteFotoDNI, flowEstudianteFotoLibreta, flowYape])
   const adapterProvider = createProvider(Provider, {
     jwtToken: process.env.JWTOKEN,
     numberId: process.env.NUMBER_ID,
