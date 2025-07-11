@@ -42,7 +42,7 @@ const EstudianteSchema = new mongoose.Schema({
   apellidoMaterno: { type: String, required: true },
   tipoAdmision: { type: String, required: true },
   grado: { type: String, required: true }, // Nuevo campo para almacenar el grado elegido
-  condicionMedica: { type: String, required: true }, 
+  condicionMedica: { type: String }, 
   imagen: mongoose.Schema.Types.ObjectId, // Guardamos el ID de la imagen en GridFS
   imagenLibreta: mongoose.Schema.Types.ObjectId, // Nueva imagen de la libreta
   estadoAdmision: { type: String, default: "Pendiente" }, // Nuevo campo con valor por defecto
@@ -221,7 +221,7 @@ const flowCondicionMedica = addKeyword(EVENTS.ACTION)
   });
 
 const flowEstudiante = addKeyword(EVENTS.ACTION)
-  .addAnswer('Ahora vamos a continuar con los datos del estudiante para completar el *Proceso de Admisión*')
+  .addAnswer('Vamos a continuar con los datos del estudiante para completar el *Proceso de Admisión*. 😊')
   .addAnswer(
     '1. Ingresa el número de *documento de identidad (DNI o CE)* del estudiante:',
     { capture: true },
@@ -275,7 +275,7 @@ const flowEstudiante = addKeyword(EVENTS.ACTION)
     }
   ); 
 
-const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('5. Finalmente, necesito una foto de tu *documento de identidad (DNI o CE)*. Por favor, envíala como una imagen adjunta.',
+const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('6. Finalmente, necesito una foto de tu *documento de identidad (DNI o CE)*. Por favor, envíala como una imagen adjunta.',
   { capture: true },
   async (ctx, { state, flowDynamic, fallBack, gotoFlow }) => {
     // Verificar si el tipo de mensaje es una imagen
@@ -319,7 +319,7 @@ const flowApoderadoFotoDNI = addKeyword(EVENTS.MEDIA).addAnswer('5. Finalmente, 
 
 const flowApoderado = addKeyword(EVENTS.ACTION)
   .addAnswer(
-    '¡Perfecto! Para comenzar, necesito algunos datos personales.\nIngresa tu número de *documento de identidad (DNI o CE)*:',
+    '¡Perfecto! Para comenzar, necesito algunos datos personales.\n1. Ingresa tu número de *documento de identidad (DNI o CE)*:',
     { capture: true },
     async (ctx, { state, fallBack }) => {
       const dni = ctx.body;
@@ -334,28 +334,28 @@ const flowApoderado = addKeyword(EVENTS.ACTION)
     }
   )
   .addAnswer(
-    '1. Ingresa tu *nombre*:',
+    '2. Ingresa tu *nombre*:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ nombre: ctx.body }); // Guardar el nombre en el estado
     }
   )
   .addAnswer(
-    '2. Ingresa tu *apellido paterno*:',
+    '3. Ingresa tu *apellido paterno*:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ apellidoPaterno: ctx.body }); // Guardar el apellido paterno en el estado
     }
   )
   .addAnswer(
-    '3. Ingresa tu *apellido materno*:',
+    '4. Ingresa tu *apellido materno*:',
     { capture: true },
     async (ctx, { state }) => {
       await state.update({ apellidoMaterno: ctx.body }); // Guardar el apellido materno en el estado
     }
   )
   .addAnswer(
-    '4. Ingresa tu *correo* electrónico:',
+    '5. Ingresa tu *correo* electrónico:',
     { capture: true },
     async (ctx, { state, fallBack }) => {
       const correo = ctx.body;
@@ -376,6 +376,26 @@ const flowApoderado = addKeyword(EVENTS.ACTION)
   );
 export default flowApoderado;
 
+const flowApoderadoLegal = addKeyword(EVENTS.ACTION)
+  .addAnswer('¿Eres el *apoderado legal* del estudiante?',
+    {
+      delay: 2000,
+      buttons: [
+        { body: 'Si' },
+        { body: 'No' }
+      ]
+    })
+  .addAction({ capture: true },
+    async (ctx, { gotoFlow }) => {
+      if (ctx.body == 'Si') {
+        return gotoFlow(flowApoderado)
+      } else if (ctx.body == 'No') {
+        await flowDynamic('Solo el *apoderado legal* del estudiante puede iniciar el Proceso de Admisión. 😔');
+        return gotoFlow(flowPrincipal)
+      }
+    }
+  ) 
+
 const flowValidarApoderado = addKeyword(EVENTS.ACTION)
   .addAction(async (ctx, { flowDynamic, endFlow, gotoFlow, state }) => {
     const numero = ctx.from;
@@ -384,14 +404,14 @@ const flowValidarApoderado = addKeyword(EVENTS.ACTION)
     const usuarioExistente = await Apoderado.findOne({ telefono: numero });
     if (usuarioExistente) {
       // return await flowDynamic(`El número de teléfono *${numero}* ya está registrado. Tu usuario *${usuarioExistente.nombre}* está vinculado a este número.`);
-      await flowDynamic(`¡Perfecto, *${usuarioExistente.nombre}*!\nYa tenemos registrados tus datos personales y número de teléfono 📱${numero} como apoderado.`);
-      
+      //await flowDynamic(`¡Perfecto, *${usuarioExistente.nombre}*!\nYa tenemos registrados tus datos personales y número de teléfono 📱${numero} como apoderado.`);
+      await flowDynamic(`¡Perfecto, *${usuarioExistente.nombre}*!\nYa tenemos registrado tus datos personales como *apoderado*, asociado al número de teléfono 📱*${numero}*.`);
       //Guardar el ID del apoderado en el estado para asociarlo al estudiante
       await state.update({ apoderadoId: usuarioExistente._id });
 
       return gotoFlow(flowEstudiante)
     }
-    return gotoFlow(flowApoderado)
+    return gotoFlow(flowApoderadoLegal)
   })
 
 const flowAdmisionTraslado = addKeyword(EVENTS.ACTION)
@@ -644,7 +664,7 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
       buttons: [
         { body: 'Plan Educativo' },
         { body: 'Admisión 2025' },
-        { body: 'Contactar Asesor' }
+        //{ body: 'Contactar Asesor' }
       ]
     },
     null,
@@ -652,7 +672,7 @@ const flowPrincipal = addKeyword(EVENTS.WELCOME)
   )
 
 const main = async () => {
-  const adapterFlow = createFlow([flowPrincipal, flowTipoAdmision, flowGradoNuevo, flowNivelTraslado, flowInicialTraslado, flowPrimariaTraslado, flowSecundariaTraslado, flowVacante, flowAdmisionNuevo, flowAdmisionTraslado, flowValidarApoderado, flowApoderado, flowApoderadoFotoDNI, flowEstudiante, flowCondicionMedica, flowEstudianteFotoDNI, flowEstudianteFotoLibreta, flowYape])
+  const adapterFlow = createFlow([flowPrincipal, flowTipoAdmision, flowGradoNuevo, flowNivelTraslado, flowInicialTraslado, flowPrimariaTraslado, flowSecundariaTraslado, flowVacante, flowAdmisionNuevo, flowAdmisionTraslado, flowValidarApoderado, flowApoderadoLegal, flowApoderado, flowApoderadoFotoDNI, flowEstudiante, flowCondicionMedica, flowEstudianteFotoDNI, flowEstudianteFotoLibreta, flowYape])
   const adapterProvider = createProvider(Provider, {
     jwtToken: process.env.JWTOKEN,
     numberId: process.env.NUMBER_ID,
